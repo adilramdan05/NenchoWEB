@@ -1,64 +1,906 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>Nenmatsuchousei Form</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>年末調整 扶養親族申告支援 / Year-End Dependent Declaration Support</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8f8f8;
+        }
+        .card {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+        }
+        .btn-primary {
+            transition: all 0.2s;
+        }
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 6px -1px rgba(49, 130, 206, 0.3);
+        }
+        /* Custom scrollbar for modal */
+        .custom-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 3px;
+        }
+        .prose p { margin-top: 0.5em; margin-bottom: 0.5em; }
+    </style>
 </head>
-<body>
-  <h2>Nenmatsuchousei Form</h2>
-  <form id="myForm">
-    <label>Name: <input type="text" id="name" required></label><br><br>
-    <label>Email: <input type="email" id="email" required></label><br><br>
-    <label>Message:<br>
-      <textarea id="message" rows="5" cols="30"></textarea>
-    </label><br><br>
-    <button type="button" id="submitBtn">Submit</button>
-  </form>
+<body class="p-4 sm:p-8">
 
-  <script>
-    const scriptUrl = "https://script.google.com/macros/s/AKfycbwTi-4G3hygk1gLP2Ys7-Vfz6_RtUbyrRa7oQ4Pq026VYWqjCDog7syNHW1msgY3uDN/exec";
+    <div class="max-w-6xl mx-auto">
+        <!-- Header and Language Switcher -->
+        <header class="mb-8 bg-white p-6 card">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div>
+                    <h1 id="header-title" class="text-3xl font-bold text-blue-700">扶養親族申告支援</h1>
+                    <p id="header-subtitle" class="text-gray-600">海外居住の親族の情報を入力し、必要書類を管理します。</p>
+                </div>
+                <div class="mt-4 md:mt-0 flex flex-wrap gap-4 items-center justify-end">
+                    <select id="lang-switcher" onchange="switchLanguage()" class="p-2 border border-gray-300 rounded-lg text-sm bg-white shadow-sm">
+                        <option value="ja">日本語</option>
+                        <option value="en">English</option>
+                    </select>
+                    
+                    <!-- Respondent Name Input -->
+                    <div>
+                        <label for="respondent-name" id="label-resp-name" class="text-sm font-medium text-gray-700 block mb-1">申告者氏名 (Full Name)</label>
+                        <input type="text" id="respondent-name" oninput="validateAndSaveTaxpayerInfo()" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm" placeholder="山田 太郎">
+                    </div>
 
-    const { jsPDF } = window.jspdf;
+                    <!-- Employee Number Input (6 digits enforced) -->
+                    <div>
+                        <label for="employee-number" id="label-emp-num" class="text-sm font-medium text-gray-700 block mb-1">社員番号 (6桁)</label>
+                        <input type="text" id="employee-number" oninput="validateAndSaveTaxpayerInfo()" maxlength="6" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm" placeholder="123456" pattern="\d{6}">
+                        <p id="employee-number-warning" class="text-red-500 text-xs mt-1 hidden">社員番号は正確に6桁で入力してください。</p>
+                    </div>
+                </div>
+            </div>
+            <!-- Status Indicator -->
+            <div id="data-status-indicator" class="mt-4 p-2 text-center text-sm font-semibold rounded-lg bg-red-500 text-white hidden">
+                社員番号を入力してください (6桁必須)
+            </div>
+        </header>
 
-    function getTimestamp() {
-      const now = new Date();
-      return now.getFullYear() + "-" +
-             String(now.getMonth()+1).padStart(2,'0') + "-" +
-             String(now.getDate()).padStart(2,'0') + "_" +
-             String(now.getHours()).padStart(2,'0') + "-" +
-             String(now.getMinutes()).padStart(2,'0') + "-" +
-             String(now.getSeconds()).padStart(2,'0');
-    }
+        <!-- Main Content: Dependents List -->
+        <main class="space-y-6">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <h2 id="list-header" class="text-2xl font-semibold text-gray-800">扶養親族リスト</h2>
+                <div class="flex space-x-3">
+                    <button id="download-data-btn" onclick="downloadDataAsCsv()" class="px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 btn-primary flex items-center space-x-1" disabled>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-5 h-5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12M12 16.5V3" />
+                        </svg>
+                        <span id="btn-download-text">データダウンロード (CSV)</span>
+                    </button>
+                    <button id="add-dependent-btn" onclick="openDependentModal()" class="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 btn-primary flex items-center space-x-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-5 h-5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                        <span id="btn-add-text">扶養親族を追加</span>
+                    </button>
+                </div>
+            </div>
 
-    document.getElementById("submitBtn").addEventListener("click", () => {
-      const name = document.getElementById("name").value.trim();
-      const email = document.getElementById("email").value.trim();
-      const message = document.getElementById("message").value.trim();
+            <!-- Dependents Table -->
+            <div class="card overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th id="th-name" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">氏名</th>
+                            <th id="th-nationality" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">国籍</th>
+                            <th id="th-remittance-target" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">送金先</th>
+                            <th id="th-kinship" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">親族関係書類</th>
+                            <th id="th-remittance" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">送金証明書類</th>
+                            <th id="th-actions" class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">アクション</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dependents-table-body" class="bg-white divide-y divide-gray-200">
+                        <!-- Dependent rows will be inserted here by JavaScript -->
+                    </tbody>
+                </table>
+                <div id="empty-state" class="text-center p-8 text-gray-500 hidden">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <h3 id="empty-title" class="mt-2 text-sm font-medium text-gray-900">扶養親族がまだ登録されていません</h3>
+                    <p id="empty-subtitle" class="mt-1 text-sm text-gray-500">上の「扶養親族を追加」ボタンから登録を開始してください。</p>
+                </div>
+            </div>
+        </main>
 
-      if (!name || !email) { 
-        alert("Name & Email are required!"); 
-        return; 
-      }
+        <!-- Submission Note -->
+        <footer class="mt-10 p-4 bg-yellow-100 border border-yellow-300 rounded-lg text-sm text-yellow-800">
+            <h3 id="note-title" class="font-bold mb-1">【重要】データ提出に関する注意点</h3>
+            <p id="note-content">
+                このアプリケーションで入力・登録されたデータは、ブラウザ内のセキュアな**Firestoreデータベース**にリアルタイムで保存されています。
+                お客様が指定されたGoogle Driveへの**直接アップロードはセキュリティ上の制約から実行できません**。
+                登録完了後、必要に応じてデータを画面から手動で転記・ダウンロードし、Google Driveにアップロードしてください。
+            </p>
+        </footer>
 
-      const doc = new jsPDF();
-      doc.text(`Name: ${name}`, 10, 10);
-      doc.text(`Email: ${email}`, 10, 20);
-      doc.text(`Message: ${message}`, 10, 30);
+    </div>
 
-      const filename = `${name}_${getTimestamp()}.pdf`;
-      const pdfBase64 = doc.output('datauristring').split(',')[1];
+    <!-- Dependent Management Modal -->
+    <div id="dependent-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 hidden flex items-center justify-center p-4 z-50" onclick="closeModal(event)">
+        <div id="modal-content" class="card w-full max-w-xl max-h-[90vh] overflow-hidden flex flex-col" onclick="event.stopPropagation()">
+            <div class="p-6 custom-scroll overflow-y-auto">
+                <h2 id="modal-title" class="text-2xl font-bold text-gray-800 mb-6 border-b pb-2">扶養親族の追加・編集</h2>
+                <form id="dependent-form" class="space-y-6">
+                    <!-- Hidden input for dependent ID -->
+                    <input type="hidden" id="dependent-id">
 
-      // Send PDF to Apps Script
-      fetch(scriptUrl, {
-        method: "POST",
-        body: JSON.stringify({filename: filename, data: pdfBase64}),
-        headers: { 'Content-Type': 'application/json' }
-      })
-      .then(res => res.text())
-      .then(response => alert(response))
-      .catch(err => alert("Error: " + err));
-    });
-  </script>
-</body>
-</html>
+                    <!-- Basic Dependent Info -->
+                    <div>
+                        <label for="dependent-name" id="label-dep-name" class="block text-sm font-medium text-gray-700 mb-1">氏名 (Full Name)</label>
+                        <input type="text" id="dependent-name" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label for="dependent-nationality" id="label-dep-nationality" class="block text-sm font-medium text-gray-700 mb-1">国籍 (Nationality)</label>
+                        <input type="text" id="dependent-nationality" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="e.g., Vietnam / ベトナム">
+                    </div>
+                    <div>
+                        <label for="remittance-target" id="label-remittance-target" class="block text-sm font-medium text-gray-700 mb-1">送金先（誰宛に送金したか）(To whom money was sent)</label>
+                        <input type="text" id="remittance-target" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="e.g., Mother / 母親">
+                    </div>
+
+                    <!-- File Upload 1: Kinship Proof -->
+                    <div class="p-4 border border-indigo-300 rounded-lg bg-indigo-50 space-y-3">
+                        <h3 id="label-kinship-proof" class="font-semibold text-indigo-700">親族関係書類の証明</h3>
+                        <input type="file" id="kinship-files" multiple accept=".pdf,.jpg,.jpeg,.doc,.docx" onchange="handleFileChange('kinship')" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-100 file:text-indigo-700 hover:file:bg-indigo-200">
+                        <p id="kinship-error" class="text-red-500 text-sm hidden"></p>
+                        <div id="kinship-file-list" class="text-xs text-gray-600 space-y-1"></div>
+                    </div>
+
+                    <!-- File Upload 2: Remittance Proof -->
+                    <div class="p-4 border border-teal-300 rounded-lg bg-teal-50 space-y-3">
+                        <h3 id="label-remittance-proof" class="font-semibold text-teal-700">送金証明書類の証明</h3>
+                        <input type="file" id="remittance-files" multiple accept=".pdf,.jpg,.jpeg,.doc,.docx" onchange="handleFileChange('remittance')" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-teal-100 file:text-teal-700 hover:file:bg-teal-200">
+                        <p id="remittance-error" class="text-red-500 text-sm hidden"></p>
+                        <div id="remittance-file-list" class="text-xs text-gray-600 space-y-1"></div>
+                    </div>
+
+                    <div id="validation-message" class="text-red-600 hidden text-center p-2 rounded-lg bg-red-100"></div>
+                </form>
+            </div>
+            
+            <div class="p-4 border-t flex justify-end space-x-3">
+                <button type="button" onclick="closeModal()" id="btn-cancel" class="px-4 py-2 text-sm text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300">キャンセル</button>
+                <button type="submit" onclick="saveDependent(event)" id="btn-save" class="px-4 py-2 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700 btn-primary">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Hint Modal -->
+    <div id="ai-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 hidden flex items-center justify-center p-4 z-50" onclick="closeAIModal(event)">
+        <div class="card w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col" onclick="event.stopPropagation()">
+            <div class="p-6 custom-scroll overflow-y-auto">
+                <h2 id="ai-modal-title" class="text-2xl font-bold text-purple-700 mb-4 border-b pb-2">必要書類ヒント</h2>
+                <div id="ai-output" class="prose max-w-none text-gray-700">
+                    <!-- AI content will be injected here -->
+                </div>
+                
+                <div class="mt-6 p-3 bg-yellow-100 border border-yellow-300 rounded-lg text-sm text-yellow-800">
+                    <p id="ai-disclaimer"></p>
+                    <div id="ai-sources" class="mt-2 text-xs"></div>
+                </div>
+            </div>
+            
+            <div class="p-4 border-t flex justify-end">
+                <button type="button" onclick="closeAIModal()" id="btn-close-ai" class="px-4 py-2 text-sm text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Firebase/JS Setup -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, orderBy, deleteDoc, updateDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global constraints
+        const MAX_FILES = 5;
+        const MAX_FILE_SIZE_MB = 50;
+        const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+        
+        // LLM Constants and API Setup
+        const GEMINI_API_MODEL = 'gemini-2.5-flash-preview-09-2025';
+        const API_KEY = ""; // Kept empty as per instructions
+        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_API_MODEL}:generateContent?key=${API_KEY}`;
+
+
+        // --- START: CONFIGURATION FOR PUBLIC DEPLOYMENT (REQUIRED CHANGE) ---
+        // !!! IMPORTANT: REPLACE THESE PLACEHOLDERS WITH YOUR OWN FIREBASE CONFIG !!!
+        // 1. Get this object from your Firebase Project Settings -> Web App
+        const firebaseConfig = {
+            apiKey: "17634117165",
+            authDomain: "nenchoweb.firebaseapp.com",
+            projectId: "nenchoWEB",
+            storageBucket: "nenchoweb.appspot.com",
+            messagingSenderId: "123456789012",
+            appId: "1:123456789012:web:abcdef1234567890"
+        };
+
+        // 2. Use a unique ID for public data segregation (e.g., your project ID)
+        const appId = firebaseConfig.projectId || 'tax-app-public-demo'; 
+        // 3. We use anonymous sign-in for public deployment.
+        const initialAuthToken = null; 
+        // --- END: CONFIGURATION FOR PUBLIC DEPLOYMENT ---
+
+        let app, db, auth;
+        let userId = null;
+        let isAuthReady = false;
+        
+        // Global Data State
+        let dependents = [];
+        let employeeNumber = ""; // Will be updated by input
+        let employeeName = ""; 
+        let currentListenerCleanup = null; // To stop old Firestore listener (NEW)
+
+        // Public Path Constants
+        const TAXPAYER_COLLECTION = 'taxpayer_records';
+        const DEPENDENTS_SUBCOLLECTION = 'dependents';
+
+        // Translation Data
+        const translations = {
+            ja: {
+                title: "扶養親族申告支援",
+                subtitle: "海外居住の親族の情報を入力し、必要書類を管理します。",
+                label_resp_name: "申告者氏名 (Full Name)", 
+                label_emp_num: "社員番号 (6桁)", 
+                list_header: "扶養親族リスト",
+                btn_add: "扶養親族を追加",
+                btn_download: "データダウンロード (CSV)", // NEW
+                th_name: "氏名 (Full Name)",
+                th_nationality: "国籍 (Nationality)",
+                th_remittance_target: "送金先 (To Whom Sent)",
+                th_kinship: "親族関係書類",
+                th_remittance: "送金証明書類",
+                th_actions: "アクション",
+                empty_title: "扶養親族がまだ登録されていません",
+                empty_subtitle: "上の「扶養親族を追加」ボタンから登録を開始してください。",
+                note_title: "【重要】データ提出に関する注意点",
+                note_content: "このアプリケーションで入力・登録されたデータは、ブラウザ内のセキュアな**Firestoreデータベース**にリアルタイムで保存されています。お客様が指定されたGoogle Driveへの**直接アップロードはセキュリティ上の制約から実行できません**。登録完了後、必要に応じてデータを画面から手動で転記・ダウンロードし、Google Driveにアップロードしてください。",
+                
+                modal_title_add: "扶養親族の追加",
+                modal_title_edit: "扶養親族の編集",
+                label_dep_name: "氏名 (Full Name)",
+                label_dep_nationality: "国籍 (Nationality)",
+                label_remittance_target: "送金先（誰宛に送金したか）(To whom money was sent)",
+                label_kinship_proof: "親族関係書類の証明 (Family Register/Birth Certificate)",
+                label_remittance_proof: "送金証明書類の証明 (Proof of Remittance)",
+                btn_cancel: "キャンセル",
+                btn_save: "保存",
+                btn_edit: "編集",
+                btn_delete: "削除",
+                
+                // Messages & Validation
+                msg_files_ok: (count) => `✅ ${count} 個のファイルが登録されました (メタデータ保存)`,
+                msg_delete_confirm: (name) => `本当に ${name} さんの情報を削除しますか？`,
+                val_max_files: (max) => `⚠️ ファイルは最大 ${max} 個まで選択できます。`,
+                val_max_size: (name, size, max) => `⚠️ ファイル ${name} (${(size / 1048576).toFixed(2)}MB) は 50MB の制限を超えています。`,
+                val_emp_num_length: "社員番号は正確に6桁で入力してください。", 
+                msg_data_ready: "✅ データ接続準備完了", 
+                msg_awaiting_emp_num: "❌ 社員番号入力待ち", 
+                msg_save_error: "⚠️ 保存エラー", 
+                csv_filename: "年末調整_扶養親族申告データ", // NEW
+
+                // New LLM translations
+                btn_generate_hints: "書類のヒントを生成",
+                ai_modal_title: "必要書類ヒント（AIによる一般的な情報）",
+                ai_disclaimer: "⚠️ これは一般的な情報提供であり、税務・法律に関する助言ではありません。必ず会社の担当部署または税理士にご確認ください。",
+                ai_sources: "情報ソース",
+                msg_generating: "書類のヒントを生成中です...",
+                msg_generation_failed: "ヒントの生成に失敗しました。ネットワーク接続を確認し、再度お試しください。",
+            },
+            en: {
+                title: "Year-End Dependent Declaration Support",
+                subtitle: "Enter information and manage required documents for dependents residing overseas.",
+                label_resp_name: "Respondent Full Name", 
+                label_emp_num: "Employee Number (6 digits)", 
+                list_header: "Dependent List",
+                btn_add: "Add Dependent",
+                btn_download: "Download Data (CSV)", // NEW
+                th_name: "Full Name",
+                th_nationality: "Nationality",
+                th_remittance_target: "Remittance Target (To Whom Sent)",
+                th_kinship: "Proof of Kinship",
+                th_remittance: "Proof of Remittance",
+                th_actions: "Actions",
+                empty_title: "No dependents registered yet",
+                empty_subtitle: "Start by clicking the 'Add Dependent' button above.",
+                note_title: "【Important】Note on Data Submission",
+                note_content: "Data entered and registered in this application is saved in a secure **Firestore database** in real-time. **Direct upload** to your specified Google Drive is **not possible** due to security constraints. After registration, please manually transcribe or download the data from the screen and upload it to your Google Drive as needed.",
+                
+                modal_title_add: "Add Dependent",
+                modal_title_edit: "Edit Dependent",
+                label_dep_name: "Full Name",
+                label_dep_nationality: "Nationality",
+                label_remittance_target: "Remittance Target (To whom money was sent)",
+                label_kinship_proof: "Proof of Kinship (Family Register/Birth Certificate)",
+                label_remittance_proof: "Proof of Remittance (Proof of Remittance)",
+                btn_cancel: "Cancel",
+                btn_save: "Save",
+                btn_edit: "Edit",
+                btn_delete: "Delete",
+
+                // Messages & Validation
+                msg_files_ok: (count) => `✅ ${count} files registered (metadata saved)`,
+                msg_delete_confirm: (name) => `Are you sure you want to delete the information for ${name}?`,
+                val_max_files: (max) => `⚠️ You can select a maximum of ${max} files.`,
+                val_max_size: (name, size, max) => `⚠️ File ${name} (${(size / 1048576).toFixed(2)}MB) exceeds the 50MB limit.`,
+                val_emp_num_length: "Employee number must be exactly 6 digits.", 
+                msg_data_ready: "✅ Data connection ready", 
+                msg_awaiting_emp_num: "❌ Awaiting Employee ID", 
+                msg_save_error: "⚠️ Save Error", 
+                csv_filename: "YearEndTax_DependentDeclarationData", // NEW
+
+                // New LLM translations
+                btn_generate_hints: "Generate Document Tips",
+                ai_modal_title: "Required Document Tips (General Info by AI)",
+                ai_disclaimer: "⚠️ This is general information and not tax or legal advice. Always confirm with your company's HR/Tax department or a certified tax advisor.",
+                ai_sources: "Information Sources",
+                msg_generating: "Generating document tips...",
+                msg_generation_failed: "Failed to generate tips. Please check your network connection and try again.",
+            }
+        };
+        let currentLang = 'ja';
+
+        // --- Utility Functions ---
+        const switchLanguage = () => {
+            currentLang = document.getElementById('lang-switcher').value;
+            updateUI();
+            // Ensure status indicator text updates on language switch
+            validateAndSaveTaxpayerInfo(); 
+            renderDependents(); // Rerender to update action button text
+        };
+
+        const updateUI = () => {
+            const t = translations[currentLang];
+            document.title = currentLang === 'ja' ? '年末調整 扶養親族申告支援 / Year-End Dependent Declaration Support' : 'Year-End Dependent Declaration Support / 年末調整 扶養親族申告支援';
+            document.getElementById('header-title').textContent = t.title;
+            document.getElementById('header-subtitle').textContent = t.subtitle;
+            document.getElementById('label-resp-name').textContent = t.label_resp_name; 
+            document.getElementById('label-emp-num').textContent = t.label_emp_num; 
+            document.getElementById('employee-number-warning').textContent = t.val_emp_num_length; 
+            document.getElementById('list-header').textContent = t.list_header;
+            document.getElementById('btn-add-text').textContent = t.btn_add;
+            document.getElementById('btn-download-text').textContent = t.btn_download; // NEW
+            document.getElementById('th-name').textContent = t.th_name;
+            document.getElementById('th-nationality').textContent = t.th_nationality;
+            document.getElementById('th-remittance-target').textContent = t.th_remittance_target;
+            document.getElementById('th-kinship').textContent = t.th_kinship;
+            document.getElementById('th-remittance').textContent = t.th_remittance;
+            document.getElementById('th-actions').textContent = t.th_actions;
+            document.getElementById('empty-title').textContent = t.empty_title;
+            document.getElementById('empty-subtitle').textContent = t.empty_subtitle;
+            document.getElementById('note-title').textContent = t.note_title;
+            document.getElementById('note-content').textContent = t.note_content;
+            document.getElementById('btn-cancel').textContent = t.btn_cancel;
+            document.getElementById('btn-save').textContent = t.btn_save;
+            
+            // Modal labels
+            document.getElementById('label-dep-name').textContent = t.label_dep_name;
+            document.getElementById('label-dep-nationality').textContent = t.label_dep_nationality;
+            document.getElementById('label-remittance-target').textContent = t.label_remittance_target;
+            document.getElementById('label-kinship-proof').textContent = t.label_kinship_proof;
+            document.getElementById('label-remittance-proof').textContent = t.label_remittance_proof;
+            
+            // Status Indicator (Update default message)
+            const statusEl = document.getElementById('data-status-indicator');
+            if (statusEl.classList.contains('bg-red-500')) {
+                statusEl.textContent = t.msg_awaiting_emp_num;
+            } else if (statusEl.classList.contains('bg-green-500')) {
+                statusEl.textContent = t.msg_data_ready;
+            } else {
+                statusEl.textContent = t.msg_awaiting_emp_num;
+            }
+        };
+
+        const formatBytes = (bytes) => {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        };
+
+        // Retry logic helper
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+        
+        /** Retry fetch with exponential backoff. */
+        const fetchWithRetry = async (url, options, maxRetries = 3) => {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.ok) {
+                        return response;
+                    }
+                    if (response.status === 429 && i < maxRetries - 1) { // Too Many Requests
+                        const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                        console.warn(`Rate limit hit. Retrying in ${delay / 1000}s...`);
+                        await sleep(delay);
+                        continue;
+                    }
+                    throw new Error(`API call failed with status: ${response.status}`);
+                } catch (error) {
+                    if (i === maxRetries - 1) throw error;
+                    const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                    console.error(`Fetch error. Retrying in ${delay / 1000}s...`, error);
+                    await sleep(delay);
+                }
+            }
+        };
+        
+        // --- Gemini LLM Functions ---
+
+        /** Opens and configures the AI results modal. */
+        const openAIModal = (title, content, sources) => {
+            document.getElementById('ai-modal-title').textContent = title;
+            document.getElementById('ai-output').innerHTML = content;
+            document.getElementById('ai-disclaimer').textContent = translations[currentLang].ai_disclaimer;
+            
+            const sourcesEl = document.getElementById('ai-sources');
+            sourcesEl.innerHTML = '';
+            if (sources && sources.length > 0) {
+                const sourceList = sources.map(s => 
+                    `<li><a href="${s.uri}" target="_blank" class="text-blue-600 hover:text-blue-800 underline text-xs">${s.title}</a></li>`
+                ).join('');
+                sourcesEl.innerHTML = `<p class="font-bold">${translations[currentLang].ai_sources}:</p><ul class="list-disc list-inside space-y-1 mt-1">${sourceList}</ul>`;
+            } else {
+                sourcesEl.innerHTML = '';
+            }
+
+            document.getElementById('ai-modal').classList.remove('hidden');
+        };
+
+        /** Closes the AI modal. */
+        const closeAIModal = (event) => {
+            if (event && event.target.id === 'ai-modal') {
+                document.getElementById('ai-modal').classList.add('hidden');
+            } else if (!event) {
+                document.getElementById('ai-modal').classList.add('hidden');
+            }
+        };
+
+        /**
+         * Uses Gemini to generate document hints based on dependent's nationality and relationship.
+         */
+        const generateDocumentHints = async (dependentId) => {
+            const t = translations[currentLang];
+            const dependent = dependents.find(d => d.id === dependentId);
+            
+            if (!dependent) {
+                console.error("Dependent not found.");
+                return;
+            }
+
+            const prompt = currentLang === 'ja' 
+                ? `日本の年末調整（扶養控除）において、海外（国籍: ${dependent.nationality}）に居住する親族（送金先名: ${dependent.remittanceTarget}）を扶養に入れる際に、一般的に必要とされる「親族関係書類」や「送金証明書類」の書類名とその確認ポイントについて、一般的な情報を提供してください。具体的な税務アドバイスではなく、一般的なガイダンスとして300文字程度で簡潔に要約し、Markdownリスト形式で回答してください。`
+                : `Provide general guidance on the names of "Proof of Kinship" and "Proof of Remittance" documents, and key checking points, typically required for Japan's year-end tax adjustment (dependent deduction) when claiming a dependent who resides overseas (Nationality: ${dependent.nationality}, Remittance Target Name: ${dependent.remittanceTarget}). Do not provide specific tax advice. Summarize concisely in about 150 English words using a Markdown list.`;
+            
+            const systemPrompt = currentLang === 'ja'
+                ? "あなたは税務に詳しいAIアシスタントです。ユーザーの入力に基づき、日本の税法（所得税法）が海外扶養親族に要求する書類に関する一般的な情報のみを提供してください。この情報は参考情報であり、具体的な税務アドバイスではないことを明確に伝えてください。情報を簡潔に、箇条書き（Markdownリスト）を用いて整理して回答してください。"
+                : "You are an AI assistant knowledgeable about tax generalities. Based on the user's input, provide only general information regarding the documents required by Japanese tax law for overseas dependents. Clearly state that this information is for reference only and not specific tax advice. Please organize the information concisely using a Markdown list.";
+
+            // Show loading state
+            const loadingContent = `<div class="flex items-center space-x-2 text-purple-600">
+                <svg class="animate-spin h-5 w-5 text-purple-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>${t.msg_generating}</span>
+            </div>`;
+            openAIModal(t.ai_modal_title, loadingContent, null);
+
+            try {
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    tools: [{ "google_search": {} }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    config: {
+                         language: currentLang
+                    }
+                };
+
+                const response = await fetchWithRetry(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+
+                let generatedText = `<p>${t.msg_generation_failed}</p>`;
+                let sources = [];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    generatedText = candidate.content.parts[0].text;
+                    
+                    // Extract grounding sources
+                    const groundingMetadata = candidate.groundingMetadata;
+                    if (groundingMetadata && groundingMetadata.groundingAttributions) {
+                        sources = groundingMetadata.groundingAttributions
+                            .map(attribution => ({
+                                uri: attribution.web?.uri,
+                                title: attribution.web?.title,
+                            }))
+                            .filter(source => source.uri && source.title); // Ensure sources are valid
+                    }
+                }
+
+                openAIModal(t.ai_modal_title, generatedText, sources);
+
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                openAIModal(t.ai_modal_title, `<p class="text-red-600">${t.msg_generation_failed}</p>`, null);
+            }
+        };
+
+
+        // --- Firebase and Data Functions ---
+
+        /** Gets the Firestore document path for taxpayer info (Public, keyed by Employee Number). */
+        const getTaxpayerDocRef = () => {
+            const empNum = document.getElementById('employee-number').value.trim();
+            if (!empNum || empNum.length !== 6) return null;
+            // Path: artifacts/{appId}/public/data/taxpayer_records/{employeeNumber}
+            return doc(db, 'artifacts', appId, 'public', 'data', TAXPAYER_COLLECTION, empNum);
+        }
+
+        /** Gets the Firestore collection path for dependents (Public, Subcollection). */
+        const getDependentsCollectionRef = () => {
+            const docRef = getTaxpayerDocRef();
+            if (!docRef) return null;
+            // Path: artifacts/{appId}/public/data/taxpayer_records/{employeeNumber}/dependents
+            return collection(docRef, DEPENDENTS_SUBCOLLECTION);
+        }
+
+        /** Handles saving the employee number and respondent name, and triggers data loading. */
+        const validateAndSaveTaxpayerInfo = async () => {
+            if (!isAuthReady || !userId) return;
+            const t = translations[currentLang];
+            const numberInput = document.getElementById('employee-number');
+            const nameInput = document.getElementById('respondent-name');
+            const warningEl = document.getElementById('employee-number-warning');
+            const statusEl = document.getElementById('data-status-indicator');
+            
+            // 1. Sanitize and enforce digit-only input for employee number
+            const sanitizedNumber = numberInput.value.replace(/[^0-9]/g, '').slice(0, 6);
+            numberInput.value = sanitizedNumber;
+
+            const newNumber = sanitizedNumber;
+            const newName = nameInput.value.trim();
+            const isNumberValid = newNumber.length === 6;
+
+            // 2. Display length warning
+            warningEl.classList.toggle('hidden', isNumberValid || newNumber.length === 0);
+
+            // 3. Update status indicator
+            statusEl.classList.remove('hidden');
+            if (isNumberValid) {
+                statusEl.classList.remove('bg-red-500');
+                statusEl.classList.add('bg-green-500');
+                statusEl.textContent = t.msg_data_ready;
+            } else {
+                statusEl.classList.remove('bg-green-500');
+                statusEl.classList.add('bg-red-500');
+                statusEl.textContent = t.msg_awaiting_emp_num;
+            }
+
+            // Check if the employee number has actually changed (and is valid)
+            const numberChanged = employeeNumber !== newNumber && isNumberValid;
+            
+            // Update global state
+            employeeName = newName; 
+            employeeNumber = newNumber;
+
+            if (isNumberValid) {
+                const docRef = getTaxpayerDocRef();
+                try {
+                    // Save both fields to the public record keyed by employeeNumber
+                    await setDoc(docRef, { employeeNumber: newNumber, respondentName: newName, lastModifiedBy: userId }, { merge: true });
+                    
+                    // Trigger listener change if the employee number is valid AND changed
+                    if (numberChanged) {
+                        handleEmployeeNumberChange();
+                    }
+
+                } catch (error) {
+                    console.error("Error saving taxpayer info:", error);
+                    statusEl.classList.remove('bg-green-500');
+                    statusEl.classList.add('bg-red-500');
+                    statusEl.textContent = t.msg_save_error;
+                }
+            } else {
+                 // If the number is invalid or empty, stop any existing listener
+                 if(currentListenerCleanup) {
+                     currentListenerCleanup();
+                     currentListenerCleanup = null;
+                     dependents = [];
+                     renderDependents(); // Clear the list
+                 }
+            }
+        };
+
+        /** Handles the change in employee number by stopping the old listener and starting a new one. */
+        const handleEmployeeNumberChange = () => {
+             // Stop the old listener if it exists
+            if (currentListenerCleanup) {
+                currentListenerCleanup();
+                currentListenerCleanup = null;
+                dependents = []; // Clear current data immediately
+                renderDependents(); 
+            }
+            
+            // Start the new listener if the number is valid
+            if (employeeNumber && employeeNumber.length === 6) {
+                startDependentListener();
+            }
+        }
+
+        /** Handles loading the taxpayer info (employee number and name) on startup. */
+        const loadTaxpayerInfo = async () => {
+             // After initial auth, we check the current input state
+             const numberInput = document.getElementById('employee-number');
+             const nameInput = document.getElementById('respondent-name');
+
+             // Check if the user has already entered a number (e.g., persistent state)
+             if (numberInput.value.length === 6) {
+                 // If a 6-digit number is present, load the record for that number
+                 const docRef = getTaxpayerDocRef();
+                 if (docRef) {
+                      try {
+                          const docSnap = await getDoc(docRef);
+                          if (docSnap.exists()) {
+                              const data = docSnap.data();
+                              employeeNumber = data.employeeNumber || "";
+                              employeeName = data.respondentName || ""; 
+                              
+                              // Update UI based on loaded data
+                              nameInput.value = employeeName; 
+                              
+                              // Trigger listener setup and status update
+                              validateAndSaveTaxpayerInfo(); 
+                          }
+                      } catch (error) {
+                          console.error("Error loading initial taxpayer info:", error);
+                      }
+                 }
+             }
+             // If no number is entered, the status indicator will show 'awaiting input'
+             validateAndSaveTaxpayerInfo(); 
+        }
+        
+        /** Setup Firebase and authentication. */
+        const setupFirebase = async () => {
+            try {
+                // setLogLevel('debug'); // Enable for debugging
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                await setPersistence(auth, browserSessionPersistence);
+                
+                // Sign in with custom token or anonymously
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    // For public deployment, we sign in anonymously as the custom token is unavailable.
+                    await signInAnonymously(auth); 
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        isAuthReady = true;
+                        console.log("Firebase Auth Ready. User ID:", userId);
+                        
+                        // Load Taxpayer Info (Name and Number) - will trigger listener
+                        loadTaxpayerInfo();
+                        
+
+                    } else {
+                        userId = null;
+                        isAuthReady = false;
+                        // Stop listener and clear data if auth state changes unexpectedly
+                        if(currentListenerCleanup) { currentListenerCleanup(); currentListenerCleanup = null; }
+                        dependents = [];
+                        renderDependents();
+                        console.log("Firebase signed out or anonymous.");
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase Initialization Error:", error);
+            }
+        };
+
+        /** Starts the real-time listener for dependents data. */
+        const startDependentListener = () => {
+            const dependentsCollectionRef = getDependentsCollectionRef();
+            if (!isAuthReady || !userId || !dependentsCollectionRef) return; 
+
+            // If an old listener is still running for some reason, clean it up
+            if (currentListenerCleanup) {
+                currentListenerCleanup();
+            }
+
+            const dependentsQuery = query(dependentsCollectionRef, orderBy('name', 'asc'));
+
+            // Set the new listener and save the cleanup function
+            currentListenerCleanup = onSnapshot(dependentsQuery, (snapshot) => {
+                dependents = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+                renderDependents();
+            }, (error) => {
+                console.error("Error listening to dependents:", error);
+            });
+            
+            console.log(`Listening to dependents for employee: ${employeeNumber}`);
+        };
+        
+        /** Saves or updates a dependent record. */
+        const saveDependent = async (event) => {
+            event.preventDefault();
+            const t = translations[currentLang];
+            const dependentsCollectionRef = getDependentsCollectionRef();
+            const validationMsgEl = document.getElementById('validation-message');
+
+            if (!isAuthReady || !userId || !dependentsCollectionRef) {
+                // Display a warning that employee number must be valid first
+                validationMsgEl.textContent = currentLang === 'ja' 
+                    ? '⚠️ データを保存する前に、有効な社員番号（6桁）を入力してください。'
+                    : '⚠️ Please enter a valid 6-digit employee number before saving data.';
+                validationMsgEl.classList.remove('hidden');
+                return;
+            }
+
+            const id = document.getElementById('dependent-id').value;
+            const name = document.getElementById('dependent-name').value.trim();
+            const nationality = document.getElementById('dependent-nationality').value.trim();
+            const remittanceTarget = document.getElementById('remittance-target').value.trim();
+            validationMsgEl.classList.add('hidden');
+
+            if (!name || !nationality || !remittanceTarget) {
+                 validationMsgEl.textContent = currentLang === 'ja' 
+                    ? '⚠️ すべての必須項目（氏名、国籍、送金先）を入力してください。'
+                    : '⚠️ Please fill in all required fields (Name, Nationality, Remittance Target).';
+                validationMsgEl.classList.remove('hidden');
+                return;
+            }
+
+            // Get file metadata stored during validation
+            const kinshipFiles = JSON.parse(document.getElementById('kinship-files').dataset.files || '[]');
+            const remittanceFiles = JSON.parse(document.getElementById('remittance-files').dataset.files || '[]');
+
+            const dependentData = {
+                name,
+                nationality,
+                remittanceTarget,
+                kinshipFiles,
+                remittanceFiles,
+                lastUpdated: new Date().toISOString()
+            };
+
+            try {
+                // Use the dynamically generated collection ref
+                const docRef = id ? doc(dependentsCollectionRef, id) : doc(dependentsCollectionRef);
+                await setDoc(docRef, dependentData);
+
+                closeModal();
+                console.log("Dependent saved successfully. ID:", id || docRef.id);
+
+            } catch (error) {
+                console.error("Error saving dependent:", error);
+                validationMsgEl.textContent = currentLang === 'ja' 
+                    ? `⚠️ 保存中にエラーが発生しました: ${error.message}`
+                    : `⚠️ Error occurred during saving: ${error.message}`;
+                validationMsgEl.classList.remove('hidden');
+            }
+        };
+
+        /** Deletes a dependent record. */
+        const deleteDependent = async (id, name) => {
+            const t = translations[currentLang];
+            const dependentsCollectionRef = getDependentsCollectionRef();
+
+            if (!isAuthReady || !userId || !dependentsCollectionRef) {
+                console.warn("Cannot delete: Employee number is invalid or not authenticated.");
+                return;
+            }
+            
+            // NOTE: Using custom modal/UI instead of window.confirm for production code
+            if (window.confirm(t.msg_delete_confirm(name))) {
+                try {
+                    await deleteDoc(doc(dependentsCollectionRef, id)); // Use the dynamic collection ref
+                    console.log(`Dependent ${id} deleted.`);
+                } catch (error) {
+                    console.error("Error deleting dependent:", error);
+                }
+            }
+        };
+
+        // --- CSV Download Function (NEW) ---
+
+        /** Escapes a string for CSV, wrapping it in double quotes if it contains commas, quotes, or newlines. */
+        const escapeCsv = (str) => {
+            if (str === null || str === undefined) return '';
+            const s = String(str).replace(/"/g, '""'); // Escape double quotes
+            if (s.includes(',') || s.includes('\n') || s.includes('"')) {
+                return `"${s}"`;
+            }
+            return s;
+        };
+
+        /** Converts the dependents array to a CSV string. */
+        const convertToCsv = (data) => {
+            const t = translations[currentLang];
+            
+            // 1. Define Headers
+            const headers = [
+                'ID',
+                t.th_name,
+                t.th_nationality,
+                t.th_remittance_target,
+                `${t.th_kinship} (${t.th_kinship} - ファイル名リスト)`,
+                `${t.th_remittance} (${t.th_remittance} - ファイル名リスト)`,
+                '最終更新日時 (ISO)'
+            ];
+            let csv = headers.map(escapeCsv).join(',') + '\n';
+
+            // 2. Map data rows
+            data.forEach(dep => {
+                // Convert file metadata array to a pipe-separated string of filenames
+                const getFileNames = (files) => {
+                    return (files || []).map(f => f.name).join(' | ');
+                };
+
+                const row = [
+                    dep.id || '',
+                    dep.name || '',
+                    dep.nationality || '',
+                    dep.remittanceTarget || '',
+                    getFileNames(dep.kinshipFiles),
+                    getFileNames(dep.remittanceFiles),
+                    dep.lastUpdated || ''
+                ];
+                
+                csv += row.map(escapeCsv).join(',') + '\n';
+            });
+
+            return csv;
+        };
+
+        /** Triggers the download of the current dependents data as a CSV file. */
+        const downloadDataAsCsv = () => {
+            const t = translations[currentLang];
+            
+            if (dependents.length === 0) {
+                alert(currentLang === 'ja' ? 'ダウンロードするデータがありません。' : 'There is no data to download.');
+                return;
+            }
+
+            const csvContent = convertToCsv(dependents);
+            const blob = new Blob(["\ufeff", csvContent], { type: 'text/csv;charset=utf-8;' });
+            
+            // Create a temporary link element
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute("href", url);
+            
+            // Construct filename: e.g., 年末調整_扶養親族申告
